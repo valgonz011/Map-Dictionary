@@ -1,21 +1,24 @@
 import streamlit as st
-from streamlit_folium import folium_static
-import pandas as pd
 import folium
-from folium import Tooltip
+from streamlit_folium import folium_static
 from googletrans import Translator
 from gtts import gTTS
 from io import BytesIO
+import base64
 
-# Lista de países con dialectos
+# --- Supported langs for gTTS (idiomas soportados para audio)
+SUPPORTED_LANGS = ["de", "it", "hi", "bn", "fr", "es", "en", "ja"]
+
+translator = Translator()
+
+# --- Example countries with dialects
 countries = [
     {
         "name": "Germany",
         "coordinates": [51.1657, 10.4515],
         "dialects": {
             "hochdeutsch": "de",
-            "bavarian": "de",
-            "berlinerisch": "de"
+            "bavarian": "de"
         }
     },
     {
@@ -23,7 +26,6 @@ countries = [
         "coordinates": [20.5937, 78.9629],
         "dialects": {
             "hindi": "hi",
-            "punjabi": "pa",
             "bengali": "bn"
         }
     },
@@ -31,98 +33,81 @@ countries = [
         "name": "Italy",
         "coordinates": [41.8719, 12.5674],
         "dialects": {
-            "italiano": "it",
-            "sicilian": "it",
-            "venetian": "it"
-        }
-    },
-    {
-        "name": "Japan",
-        "coordinates": [36.2048, 138.2529],
-        "dialects": {
-            "japanese": "ja"
+            "standard italian": "it",
+            "sicilian": "it"
         }
     },
     {
         "name": "France",
         "coordinates": [46.6034, 1.8883],
         "dialects": {
-            "français": "fr",
-            "occitan": "fr"
+            "standard french": "fr"
+        }
+    },
+    {
+        "name": "Japan",
+        "coordinates": [36.2048, 138.2529],
+        "dialects": {
+            "standard japanese": "ja"
         }
     }
-    # Agrega más países si quieres
 ]
 
-# Lenguajes que gTTS soporta para audio
-SUPPORTED_LANGS = [
-    'en', 'es', 'fr', 'de', 'it', 'pt', 'hi', 'ja', 'ru', 'zh-cn', 'ko',
-    'ar', 'bn', 'pa'
-]
-
-# Instancia del traductor
-translator = Translator()
-
-# Crear mapa
-world_map = folium.Map(location=[20, 0], zoom_start=2)
-
-# Función para traducir palabra + romanización si existe
+# --- Translate word
 def translate_word(word, lang_code):
     try:
         result = translator.translate(word, dest=lang_code)
-        translit = result.pronunciation if result.pronunciation else ''
-        return result.text, translit
+        return result.text, result.pronunciation if result.pronunciation else ""
     except Exception as e:
-        st.error(f"Error al traducir la palabra: {e}")
-        return None, ''
+        return f"[Error: {str(e)}]", ""
 
-# Función para crear audio
-def create_audio_translation(word, lang_code):
+# --- Generate audio
+def generate_audio(text, lang_code):
     if lang_code not in SUPPORTED_LANGS:
         return None
     try:
-        tts = gTTS(text=word, lang=lang_code)
+        tts = gTTS(text=text, lang=lang_code)
         audio_file = BytesIO()
-        tts.save(audio_file)
+        tts.write_to_fp(audio_file)
         audio_file.seek(0)
         return audio_file
-    except Exception as e:
-        st.error(f"Error al generar audio: {e}")
+    except Exception:
         return None
 
-# Título de la app
-st.title("🌍 Interactive World Map - Dictionary Explorer")
+# --- Streamlit UI
+st.set_page_config(layout="wide")
+st.title("🌍 Interactive Language Map")
 
-# Input
 word = st.text_input("Enter a word to translate into multiple languages:")
 
-# Procesar si hay palabra
+# --- Create Map
+world_map = folium.Map(location=[20, 0], zoom_start=2)
+
+# --- Sidebar info panel
+st.sidebar.title("🗺 Translations & Audio")
+
+# --- Markers
 if word:
     for country in countries:
         for dialect, lang_code in country["dialects"].items():
             translated, romanized = translate_word(word, lang_code)
 
-            if not translated:
-                continue
+            tooltip_text = f"{country['name']} - {dialect}: {translated}"
 
-            hover_text = f"{country['name']} - {dialect}: {translated}"
-            if romanized and romanized.lower() != translated.lower():
-                hover_text += f" ({romanized})"
-
-            marker = folium.Marker(
+            folium.Marker(
                 location=country["coordinates"],
-                tooltip=Tooltip(hover_text),
-                popup=f"{hover_text}",
-                icon=folium.Icon(color="blue", icon="info-sign")
-            )
-            marker.add_to(world_map)
+                tooltip=tooltip_text,
+                icon=folium.Icon(color="blue", icon="info-sign"),
+            ).add_to(world_map)
 
-    # Mostrar primer audio como ejemplo
-    sample_lang = list(countries[0]["dialects"].values())[0]
-    sample_translated, _ = translate_word(word, sample_lang)
-    sample_audio = create_audio_translation(sample_translated, sample_lang)
-    if sample_audio:
-        st.audio(sample_audio, format="audio/mp3")
+            st.sidebar.subheader(f"{country['name']} - {dialect}")
+            st.sidebar.write(f"**Translated:** {translated}")
+            if romanized:
+                st.sidebar.write(f"**Romanized:** {romanized}")
 
-# Renderizar mapa
+            audio_file = generate_audio(translated, lang_code)
+            if audio_file:
+                st.sidebar.audio(audio_file, format="audio/mp3")
+
+# --- Show map
 folium_static(world_map)
