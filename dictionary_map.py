@@ -1,4 +1,12 @@
 import streamlit as st
+from streamlit_folium import folium_static  # Esta es la importación correcta
+import pandas as pd
+from googletrans import Translator
+from gtts import gTTS
+import os
+from io import BytesIO
+
+import streamlit as st
 import pandas as pd
 import folium
 from folium import plugins
