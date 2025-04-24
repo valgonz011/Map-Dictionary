@@ -1,12 +1,5 @@
 import streamlit as st
-from streamlit_folium import folium_static  # Esta es la importación correcta
-import pandas as pd
-from googletrans import Translator
-from gtts import gTTS
-import os
-from io import BytesIO
-
-import streamlit as st
+from streamlit_folium import folium_static  # Importar folium_static desde streamlit_folium
 import pandas as pd
 import folium
 from folium import plugins
@@ -14,15 +7,13 @@ from googletrans import Translator
 from gtts import gTTS
 import os
 from io import BytesIO
-from folium.plugins import HeatMap
 
-# Cargar los datos de países y dialectos
-# Se puede agregar más países y dialectos aquí
+# Lista de países, coordenadas, y códigos de idioma
 countries = [
-    {"name": "Germany", "coordinates": [51.1657, 10.4515], "language": "de"},
-    {"name": "India", "coordinates": [20.5937, 78.9629], "language": "hi"},
-    {"name": "Italy", "coordinates": [41.8719, 12.5674], "language": "it"},
-    # Agregar más países aquí
+    {"name": "Germany", "coordinates": [51.1657, 10.4515], "language": "de", "dialects": {"hochdeutsch": "de"}},
+    {"name": "India", "coordinates": [20.5937, 78.9629], "language": "hi", "dialects": {"hindi": "hi", "punjabi": "pa"}},
+    {"name": "Italy", "coordinates": [41.8719, 12.5674], "language": "it", "dialects": {"italiano": "it", "siciliano": "sc"}},
+    # Agregar más países con sus dialectos
 ]
 
 # Instancia del traductor de Google
@@ -34,6 +25,7 @@ world_map = folium.Map(location=[20, 0], zoom_start=2)
 # Función para agregar marcador a los países
 def add_markers_to_map(countries):
     for country in countries:
+        # Usamos el nombre del país para mostrar la traducción de la palabra
         folium.Marker(
             location=country["coordinates"],
             popup=country["name"],
@@ -53,24 +45,40 @@ def create_audio_translation(word, lang_code):
     audio_file.seek(0)
     return audio_file
 
-# Agregar marcadores de países al mapa
-add_markers_to_map(countries)
+# Función para crear el hover con traducción y audio
+def create_hover_features():
+    for country in countries:
+        for dialect, lang_code in country["dialects"].items():
+            # Traducir la palabra al idioma del dialecto
+            translated_word = translate_word(word, lang_code)
+            
+            # Crear el marcador con un hover que cambie de color y agregue la traducción
+            folium.Marker(
+                location=country["coordinates"],
+                popup=f"{country['name']} ({dialect}): {translated_word}",
+                icon=folium.Icon(color="green"),
+                tooltip=f"{country['name']} - {dialect}: {translated_word}",  # Mostrar la traducción al pasar el mouse
+                icon_create_function='function() { return L.divIcon({className: "fa fa-map-marker", iconSize: [24, 24]}); }',
+            ).add_to(world_map)
 
 # Crear la interfaz de usuario de Streamlit
 st.title("Interactive World Map - Translate and Listen")
 word = st.text_input("Enter a word to translate:")
 
 if word:
-    # Traducir la palabra al idioma del país más cercano
-    selected_country = countries[0]  # Aquí solo estamos tomando el primer país como ejemplo
-    translated_word = translate_word(word, selected_country["language"])
-    st.write(f"Translated word in {selected_country['name']}: {translated_word}")
+    # Traducir la palabra a los dialectos
+    selected_country = countries[0]  # Usar el primer país solo como ejemplo
+    st.write(f"Translated word in {selected_country['name']}: {word}")
     
     # Crear el audio para la traducción
-    audio = create_audio_translation(translated_word, selected_country["language"])
+    audio = create_audio_translation(word, selected_country["language"])
     
     # Mostrar el botón para reproducir el audio
     st.audio(audio, format="audio/mp3")
+
+# Agregar los marcadores y los hover features
+add_markers_to_map(countries)
+create_hover_features()
 
 # Mostrar el mapa interactivo
 folium_static(world_map)
