@@ -1,101 +1,146 @@
 import streamlit as st
-import pandas as pd
+from streamlit_folium import folium_static
 import folium
-from streamlit_folium import st_folium
 from googletrans import Translator
 from gtts import gTTS
 from io import BytesIO
-from math import radians, cos, sin, sqrt, atan2
 
+# 🌍 TITLE
 st.set_page_config(layout="wide")
+st.title("🌍 Welcome to the Interactive Language Map!")
+st.markdown("Explore and listen to how different countries say a word in their own language.")
+
+# 🌍 TRANSLATOR INSTANCE
 translator = Translator()
 
-# Datos de ejemplo
+# 🌍 WORD INPUT
+word = st.text_input("Enter a word to translate:")
+
+# 🌍 LANGUAGE DATA
 countries = [
     {
-        "name": "Germany 🇩🇪",
-        "coordinates": [51.1657, 10.4515],
-        "language": {"hochdeutsch": "de"},
-        "dialects": {"bayern": "de", "berlin": "de"}
+        "name": "Germany", "flag": "🇩🇪", "coordinates": [51.1657, 10.4515],
+        "language": {"name": "German", "code": "de"},
+        "dialects": {
+            "Bavarian": "bar",  # not supported
+            "High German": "de"
+        }
     },
     {
-        "name": "India 🇮🇳",
-        "coordinates": [20.5937, 78.9629],
-        "language": {"hindi": "hi"},
-        "dialects": {"bengali": "bn", "tamil": "ta"}
+        "name": "Italy", "flag": "🇮🇹", "coordinates": [41.8719, 12.5674],
+        "language": {"name": "Italian", "code": "it"},
+        "dialects": {
+            "Neapolitan": "nap",  # not supported
+            "Sicilian": "scn"     # not supported
+        }
     },
     {
-        "name": "Italy 🇮🇹",
-        "coordinates": [41.8719, 12.5674],
-        "language": {"italiano": "it"},
-        "dialects": {"napolitano": "nap", "siciliano": "scn"}
-    },
-    {
-        "name": "France 🇫🇷",
-        "coordinates": [46.603354, 1.888334],
-        "language": {"français": "fr"},
-        "dialects": {}
-    },
-    {
-        "name": "Japan 🇯🇵",
-        "coordinates": [36.2048, 138.2529],
-        "language": {"nihongo": "ja"},
-        "dialects": {}
+        "name": "India", "flag": "🇮🇳", "coordinates": [20.5937, 78.9629],
+        "language": {"name": "Hindi", "code": "hi"},
+        "dialects": {
+            "Marathi": "mr",
+            "Bengali": "bn"
+        }
     },
 ]
 
-def haversine(coord1, coord2):
-    R = 6371
-    lat1, lon1 = radians(coord1[0]), radians(coord1[1])
-    lat2, lon2 = radians(coord2[0]), radians(coord2[1])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c
+# 🌍 BASE MAP
+world_map = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB positron")
 
-def find_nearest_country(click_coords):
-    distances = [haversine(click_coords, c["coordinates"]) for c in countries]
-    return countries[distances.index(min(distances))]
+# 🌍 PLACEHOLDER FOR SELECTION
+selected_info = {}
 
-def translate_and_speak(word, lang_code):
+# 🌍 HANDLE CLICK ON MAP
+def on_click(e):
+    lat, lng = e["latlng"]
+    closest_country = min(countries, key=lambda c: (c["coordinates"][0] - lat) ** 2 + (c["coordinates"][1] - lng) ** 2)
+    world_map.add_child(folium.Marker(
+        location=closest_country["coordinates"],
+        icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
+    ))
+    return closest_country
+
+# 🌍 HANDLE TRANSLATION
+def safe_translate(word, lang_code):
     try:
         translated = translator.translate(word, dest=lang_code)
-        tts = gTTS(text=translated.text, lang=lang_code)
-        audio = BytesIO()
-        tts.write_to_fp(audio)
-        audio.seek(0)
-        romanized = translated.pronunciation or ""
-        return translated.text, romanized, audio
-    except Exception as e:
-        return f"[ERROR] {str(e)}", "", None
+        return translated.text, getattr(translated, "pronunciation", "")
+    except Exception:
+        return "[ERROR]", ""
 
-st.sidebar.title("🗺️ Language Info")
-word = st.text_input("Enter a word to translate into multiple languages:")
+# 🌍 AUDIO
+def create_audio(text, lang_code):
+    try:
+        tts = gTTS(text=text, lang=lang_code)
+        audio_fp = BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
+        return audio_fp
+    except Exception:
+        return None
 
-map_center = [20, 0]
-world_map = folium.Map(location=map_center, zoom_start=2)
+# 🌍 ADD CLICK SUPPORT
+click_js = """
+function(e){
+    var data = {latlng: [e.latlng.lat, e.latlng.lng]};
+    fetch('/_stcore/streamlit/click', {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+}
+"""
 
-# Resultado del clic
-click_data = st_folium(world_map, height=500, width=1000)
+st.markdown("---")
 
-# Mostrar resultado si hay palabra y clic
-if word and click_data and click_data.get("last_clicked"):
-    latlng = click_data["last_clicked"]
-    coords = [latlng["lat"], latlng["lng"]]
-    selected = find_nearest_country(coords)
+# Create the hover layer
+for country in countries:
+    folium.CircleMarker(
+        location=country["coordinates"],
+        radius=10,
+        fill=True,
+        fill_color="blue",
+        color="white",
+        fill_opacity=0.6,
+        popup=country["name"]
+    ).add_to(world_map)
 
-    st.sidebar.markdown(f"### 🌍 {selected['name']}")
-    for label, code in selected["language"].items():
-        trans, roman, audio = translate_and_speak(word, code)
-        st.sidebar.markdown(f"**Idioma oficial ({label})**: {trans} {'('+roman+')' if roman else ''}")
+if word:
+    st.sidebar.header("🗺️ Selected Country Details")
+    click_placeholder = st.empty()
+    for country in countries:
+        # Official language
+        try:
+            translated, romanized = safe_translate(word, country["language"]["code"])
+            audio = create_audio(translated, country["language"]["code"])
+        except:
+            translated, romanized, audio = "[ERROR]", "", None
+
+        st.sidebar.markdown(f"### {country['flag']} {country['name']}")
+        st.sidebar.markdown(f"**Official language**: {country['language']['name']}")
+        st.sidebar.markdown(f"**Translation**: {translated}")
+        if romanized:
+            st.sidebar.markdown(f"**Romanized**: _{romanized}_")
         if audio:
             st.sidebar.audio(audio, format="audio/mp3")
 
-    if selected["dialects"]:
-        st.sidebar.markdown("#### 🗣️ Dialectos")
-        for label, code in selected["dialects"].items():
-            trans, roman, audio = translate_and_speak(word, code)
-            st.sidebar.markdown(f"**{label}**: {trans} {'('+roman+')' if roman else ''}")
-            if audio:
-                st.sidebar.audio(audio, format="audio/mp3")
+        # Dialects
+        valid_dialects = {
+            name: code for name, code in country["dialects"].items()
+            if code not in ["bar", "nap", "scn"]
+        }
+        if valid_dialects:
+            st.sidebar.markdown(f"**Dialects:**")
+        for name, code in valid_dialects.items():
+            try:
+                translated_d, roman_d = safe_translate(word, code)
+                audio_d = create_audio(translated_d, code)
+                st.sidebar.markdown(f"**{name}**: {translated_d}")
+                if roman_d:
+                    st.sidebar.markdown(f"_Romanized:_ {roman_d}")
+                if audio_d:
+                    st.sidebar.audio(audio_d, format="audio/mp3")
+            except:
+                pass
+
+# 🌍 RENDER MAP
+folium_static(world_map)
