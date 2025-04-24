@@ -1,5 +1,0 @@
-folium==0.19.5
-googletrans==4.0.0rc1
-pandas
-streamlit
-plotly
